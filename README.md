@@ -84,21 +84,3 @@ Il grafico presente nel file Excel visualizza i livelli di glicemia nel tempo, c
 ## Contatti
 
 Per domande o suggerimenti, contattare l'autore dello script.
-
-
-## Requisiti
-
-- Python 3.x
-- Moduli Python:
-  - `csv`
-  - `datetime`
-  - `pyfiglet`
-  - `openpyxl`
-  - `re`
-
-## Installazione
-
-1. Clonare il repository o scaricare il file script Python.
-2. Installare le dipendenze necessarie usando pip:
-   ```bash
-   pip install pyfiglet openpyxl
