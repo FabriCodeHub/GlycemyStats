@@ -2,98 +2,167 @@ import csv
 from datetime import datetime
 import pyfiglet
 import openpyxl
-from openpyxl.styles import PatternFill
+from openpyxl.styles import PatternFill, Font
 from openpyxl.chart import LineChart, Reference
 import re
+import os
+import statistics
 
 def stampa_titolo():
     titolo = pyfiglet.figlet_format("GlycemyStats")
     print(titolo)
 
+def valida_data(data):
+    formati = ["%Y-%m-%d", "%d/%m/%Y", "%d\\%m\\%Y"]
+    for formato in formati:
+        try:
+            return datetime.strptime(data, formato).date()
+        except ValueError:
+            pass
+    raise ValueError("Formato data non valido")
+
+def valida_ora(ora):
+    formati = ["%H:%M", "%H.%M"]
+    for formato in formati:
+        try:
+            return datetime.strptime(ora, formato).time()
+        except ValueError:
+            pass
+    raise ValueError("Formato ora non valido")
+
 def inserisci_dati_glicemia():
     while True:
-        data = input("Inserisci la data (YYYY-MM-DD o DD/MM/YYYY o DD\\MM\\YYYY): ")
-        ora = input("Inserisci l'ora (HH:MM o HH.MM): ")
-        livello = input("Inserisci il livello di glicemia (2 o 3 cifre): ")
-
         try:
-            # Prova a riconoscere diversi formati di data e ora
-            if "/" in data:
-                data_ora = datetime.strptime(f"{data} {ora.replace('.', ':')}", "%d/%m/%Y %H:%M")
-            elif "\\" in data:
-                data_ora = datetime.strptime(f"{data} {ora.replace('.', ':')}", "%d\\%m\\%Y %H:%M")
-            else:
-                data_ora = datetime.strptime(f"{data} {ora.replace('.', ':')}", "%Y-%m-%d %H:%M")
+            data = input("Inserisci la data (YYYY-MM-DD o DD/MM/YYYY o DD\\MM\\YYYY): ")
+            data_valida = valida_data(data)
             
-            # Verifica che il livello di glicemia sia un numero di 2 o 3 cifre
-            if re.match(r"^\d{2,3}$", livello):
-                livello = float(livello)
-            else:
+            ora = input("Inserisci l'ora (HH:MM o HH.MM): ")
+            ora_valida = valida_ora(ora)
+            
+            livello = input("Inserisci il livello di glicemia (2 o 3 cifre): ")
+            if not re.match(r"^\d{2,3}$", livello):
                 raise ValueError("Livello di glicemia non valido")
+            livello = float(livello)
             
             break
         except ValueError as ve:
             print(f"Errore: {ve}. Riprova.")
-        except Exception as e:
-            print(f"Errore di formato: {e}. Riprova.")
-
+    
+    data_ora = datetime.combine(data_valida, ora_valida)
+    
     with open("livelli_glicemia.csv", mode='a', newline='') as file:
         writer = csv.writer(file)
         writer.writerow([data_ora.strftime("%Y-%m-%d"), data_ora.strftime("%H:%M"), livello])
-        print("Dati inseriti correttamente.")
+    print("Dati inseriti correttamente.")
 
 def crea_file_excel():
-    # Crea un nuovo file Excel
     wb = openpyxl.Workbook()
     ws = wb.active
     ws.title = "Livelli di Glicemia"
     
-    # Scrivi l'intestazione
     ws.append(["Data", "Ora", "Livello di Glicemia"])
     
-    # Leggi i dati dal file CSV e scrivili nel file Excel
     with open("livelli_glicemia.csv", mode='r') as file:
         reader = csv.reader(file)
         for row in reader:
             ws.append(row)
     
-    # Applica la formattazione condizionale
+    applica_formattazione(ws)
+    crea_grafico(ws)
+    aggiungi_statistiche(ws)
+    
+    wb.save("livelli_glicemia.xlsx")
+
+def applica_formattazione(ws):
     red_fill = PatternFill(start_color="FF0000", end_color="FF0000", fill_type="solid")
     green_fill = PatternFill(start_color="00FF00", end_color="00FF00", fill_type="solid")
+    yellow_fill = PatternFill(start_color="FFFF00", end_color="FFFF00", fill_type="solid")
     
     for row in ws.iter_rows(min_row=2, min_col=3, max_col=3):
         for cell in row:
-            if 101 <= cell.value <= 129:
+            value = cell.value
+            if value > 180:
                 cell.fill = red_fill
-            elif 70 <= cell.value <= 99:
+            elif 140 <= value <= 180:
+                cell.fill = yellow_fill
+            elif 70 <= value <= 139:
                 cell.fill = green_fill
+            else:
+                cell.fill = red_fill
 
-    # Crea il grafico
+def crea_grafico(ws):
     chart = LineChart()
-    chart.title = "Livelli di Glicemia"
+    chart.title = "Livelli di Glicemia nel Tempo"
     chart.style = 10
     chart.y_axis.title = 'Livello di Glicemia'
     chart.x_axis.title = 'Data e Ora'
-
+    
     data = Reference(ws, min_col=3, min_row=1, max_row=ws.max_row)
     categories = Reference(ws, min_col=1, min_row=2, max_row=ws.max_row)
-
+    
     chart.add_data(data, titles_from_data=True)
     chart.set_categories(categories)
-    ws.add_chart(chart, "E5")
     
-    # Salva il file Excel
-    wb.save("livelli_glicemia.xlsx")
+    ws.add_chart(chart, "E5")
+
+def aggiungi_statistiche(ws):
+    livelli = [cell.value for row in ws.iter_rows(min_row=2, min_col=3, max_col=3) for cell in row]
+    
+    media = statistics.mean(livelli)
+    mediana = statistics.median(livelli)
+    deviazione_std = statistics.stdev(livelli)
+    
+    ws['A{}'.format(ws.max_row + 2)] = "Statistiche"
+    ws['A{}'.format(ws.max_row + 1)] = "Media"
+    ws['B{}'.format(ws.max_row)] = media
+    ws['A{}'.format(ws.max_row + 1)] = "Mediana"
+    ws['B{}'.format(ws.max_row)] = mediana
+    ws['A{}'.format(ws.max_row + 1)] = "Deviazione Standard"
+    ws['B{}'.format(ws.max_row)] = deviazione_std
+
+def visualizza_statistiche():
+    if not os.path.exists("livelli_glicemia.csv"):
+        print("Nessun dato disponibile.")
+        return
+    
+    with open("livelli_glicemia.csv", mode='r') as file:
+        reader = csv.reader(file)
+        livelli = [float(row[2]) for row in reader]
+    
+    if not livelli:
+        print("Nessun dato disponibile.")
+        return
+    
+    print("\nStatistiche dei livelli di glicemia:")
+    print(f"Media: {statistics.mean(livelli):.2f}")
+    print(f"Mediana: {statistics.median(livelli):.2f}")
+    print(f"Deviazione Standard: {statistics.stdev(livelli):.2f}")
+    print(f"Valore Minimo: {min(livelli):.2f}")
+    print(f"Valore Massimo: {max(livelli):.2f}")
 
 def main():
     stampa_titolo()
     while True:
-        inserisci_dati_glicemia()
-        continua = input("Vuoi inserire un altro dato? (s/n): ").lower()
-        if continua != 's':
+        print("\nMenu:")
+        print("1. Inserisci dati glicemia")
+        print("2. Crea file Excel")
+        print("3. Visualizza statistiche")
+        print("4. Esci")
+        
+        scelta = input("Scegli un'opzione (1-4): ")
+        
+        if scelta == '1':
+            inserisci_dati_glicemia()
+        elif scelta == '2':
+            crea_file_excel()
+            print("File Excel creato correttamente: livelli_glicemia.xlsx")
+        elif scelta == '3':
+            visualizza_statistiche()
+        elif scelta == '4':
+            print("Grazie per aver usato GlycemyStats!")
             break
-    crea_file_excel()
-    print("File Excel creato correttamente: livelli_glicemia.xlsx")
+        else:
+            print("Opzione non valida. Riprova.")
 
 if __name__ == "__main__":
     main()
